@@ -1,0 +1,199 @@
+---
+title: "DATA624 Homework 4"
+author: "Javern Wilson"
+date: "2/23/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: flatly
+    highlight: pygments
+---
+
+## 3.1. 
+
+The UC Irvine Machine Learning Repository6 contains a data set related to glass identiﬁcation. The data consist of 214 glass samples labeled as one of seven class categories. There are nine predictors, including the refractive index and percentages of eight elements: Na, Mg, Al, Si, K, Ca, Ba, and Fe. 
+
+```{r message=FALSE, warning=FALSE}
+library(mlbench)
+library(tidyverse)
+library(GGally)
+library(corrplot)
+library(e1071)
+library(caret)
+library(car)
+library(VIM)
+library(mice)
+```
+
+
+```{r}
+data(Glass)
+str(Glass) 
+```
+
+
+### (a) 
+
+Using visualizations, explore the predictor variables to understand their distributions as well as the relationships between predictors. 
+
+```{r, fig.width=9, fig,highlight=7}
+ggpairs(Glass[, -10], lower=list(continuous='smooth'), progress = F)
+```
+
+```{r}
+ggplot(gather(Glass[,-10]), aes(value)) + 
+    geom_histogram(bins = 15, fill = 'darkgreen') + 
+    facet_wrap(~key, scales = 'free_x')
+```
+
+
+The distributions all seem skewed. There seemes to be a strong positive correlated relationship between the predictors `RI` and `Ca`p while there is negative correlation between `RI` and `Ai` and `RI`and `Si`.
+
+```{r}
+pred_cors <- cor(Glass[,-10])
+corrplot(pred_cors, method="circle")
+```
+
+Refractive Index and Ca are highly correlated with a score of 0.81.
+
+
+### (b) 
+
+Do there appear to be any outliers in the data? 
+
+```{r, fig.width=9, fig.height=7}
+ggplot(stack(Glass[,-10]), aes(x = ind, y = values)) + 
+  geom_boxplot(outlier.colour="darkgreen", outlier.shape=4, outlier.size=2) +  
+   labs(x = "Predictors", y = "Values") +
+  theme(text = element_text(size=10), axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+There are outliers present but they are only found in Refractive Index.
+
+```{r}
+outliers <- boxplot(Glass$RI, plot = F)$out
+which(Glass$RI %in% outliers)
+which(Glass$Na %in% outliers)
+which(Glass$Mg %in% outliers)
+which(Glass$Ai %in% outliers)
+which(Glass$Si %in% outliers)
+which(Glass$K %in% outliers)
+which(Glass$Ca %in% outliers)
+which(Glass$Ba %in% outliers)
+which(Glass$Fe %in% outliers)
+```
+
+
+Are any predictors skewed? 
+
+```{r}
+apply(Glass[,-10], 2, skewness)
+```
+
+There results confirmed my assumptions about the distributions of the predictors being skewed. RI, K, Ba and Fe are all right skewed. Mg, is left skewed. The others somewhat resemble a bell shape but still slightly skewed.
+
+### (c) 
+
+Are there any relevant transformations of one or more predictors that might improve the classiﬁcation model?
+
+```{r}
+glass_transformed <- preProcess(Glass[,-10], method = c("BoxCox", "center", "scale")) 
+new_data <- predict(glass_transformed, Glass[,-10])
+```
+
+```{r, fig.width= 9, fig.height=7}
+ggplot(stack(new_data), aes(x = ind, y = values)) + 
+  geom_boxplot(outlier.colour="darkgreen", outlier.shape=4, outlier.size=2) +  
+  labs(x = "Predictors", y = "Values") +
+  theme(text = element_text(size=10), axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+Looking at the boxplot the mean for each variable are centered around 0.
+
+
+
+
+## 3.2. 
+
+The soybean data can also be found at the UC Irvine Machine Learning Repository. Data were collected to predict disease in 683 soybeans. The 35 predictors are mostly categorical and include information on the environmental conditions (e.g., temperature, precipitation) and plant conditions (e.g., left spots, mold growth). The outcome labels consist of 19 distinct classes.
+
+```{r}
+data(Soybean) 
+summary(Soybean)
+```
+
+
+### (a) 
+
+Investigate the frequency distributions for the categorical predictors. 
+
+```{r, fig.width= 9, fig.height=7}
+
+par(mfrow = c(3, 6))
+for (i in 1:ncol(Soybean)) {
+  barplot(table(Soybean[ ,i]), col = 'orange', ylab = names(Soybean[i]))
+}
+
+```
+
+
+Are any of the distributions degenerate in the ways discussed earlier in this chapter? 
+
+" some models can be crippled by predictors with degenerate distributions. In these cases, there can be a signiﬁcant improvement in model performance and/or stability without the problematic variables. Consider a predictor variable that has a single unique value; we refer to this type of data as a zero variance predictor" -- Applied Predictive Modeling.
+
+Based on the words stated, the following function would be help to answer this question.
+
+```{r}
+nearZeroVar(Soybean, saveMetrics= TRUE)
+```
+
+Yes, they are: `leaf.mild`, `mycelium` and `sclerotia`.
+
+### (b) 
+
+Roughly 18% of the data are missing. 
+
+Are there particular predictors that are more likely to be missing?
+
+```{r, fig.width= 9, fig.height=7}
+aggr(Soybean, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(Soybean), cex.axis=.7, oma = c(7,4,2,2), gap=3, ylab=c("Histogram of missing data","Pattern"))
+```
+
+**OR** 
+
+```{r}
+Amelia::missmap(Soybean)
+```
+
+
+Is the pattern of missing data related to the classes? 
+
+```{r}
+miss_df <- Soybean %>% group_by(Class) %>% 
+  summarise_all(~sum(is.na(.))) %>%
+  transmute(Class, na_count = rowSums(.[-1]))
+
+miss_df
+```
+
+ I would say yes. Also, because the remaining columns seems features of the classes.
+
+### (c) 
+
+Develop a strategy for handling missing data, either by eliminating predictors or imputation.
+
+Imputation
+```{r}
+temp_data <- mice(Soybean, m=1 , maxit=50, meth='pmm', seed=500, printFlag = F)
+imputed_data <- complete(temp_data, 1)
+summary(imputed_data)
+```
+
+```{r}
+Amelia::missmap(imputed_data)
+```
+
+All missing values were replaced with the predictive mean and so we have a complete dataset.

@@ -1,0 +1,194 @@
+---
+title: "DATA624 Homework 2"
+author: "Javern Wilson"
+date: "2/8/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: yeti
+    highlight: pygments
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(fpp2)
+library(gridExtra)
+```
+
+## 3.1 {.tabset}
+
+For the following series, find an appropriate Box-Cox transformation in order to stabilise the variance.
+
++ `usnetelec`
++ `usgdp`
++ `mcopper`
++ `enplanements`
+
+### usnetelec 
+
+```{r, fig.height=7, fig.width=10}
+lambda <- BoxCox.lambda(usnetelec)
+lambda
+
+original <- autoplot(usnetelec) + ggtitle("Original")
+transformed <- autoplot(BoxCox(usnetelec,lambda)) + ggtitle("Box-Cox Transformation")
+grid.arrange(original, transformed, nrow = 1)
+```
+
+
+
+### usgdp
+
+```{r, fig.height=7, fig.width=10}
+lambda <- BoxCox.lambda(usgdp)
+lambda
+
+original <- autoplot(usgdp) + ggtitle("Original")
+transformed <- autoplot(BoxCox(usgdp,lambda)) + ggtitle("Box-Cox Transformation")
+grid.arrange(original, transformed, nrow = 1)
+```
+
+
+
+### mcopper
+```{r, fig.height=7, fig.width=10}
+lambda <- BoxCox.lambda(mcopper)
+lambda
+
+original <- autoplot(mcopper) + ggtitle("Original")
+transformed <- autoplot(BoxCox(mcopper,lambda)) + ggtitle("Box-Cox Transformation")
+grid.arrange(original, transformed, nrow = 1)
+```
+
+
+### enplanements
+```{r, fig.height=7, fig.width=10}
+lambda <- BoxCox.lambda(enplanements)
+lambda
+
+original <- autoplot(enplanements) + ggtitle("Original")
+transformed <- autoplot(BoxCox(enplanements,lambda)) + ggtitle("Box-Cox Transformation")
+grid.arrange(original, transformed, nrow = 1)
+```
+
+
+
+## 3.2
+
+Why is a Box-Cox transformation unhelpful for the `cangas` data?
+
+```{r, fig.height=7, fig.width=10}
+lambda <- BoxCox.lambda(cangas)
+lambda
+
+original <- autoplot(cangas) + ggtitle("Original")
+transformed <- autoplot(BoxCox(cangas,lambda)) + ggtitle("Box-Cox Transformation")
+grid.arrange(original, transformed, nrow = 1)
+```
+
+Even after the transformation with the best $\lambda = 0.5767759$ chosen, the variance is not constant or did not really change. In other words, the seasonal variation is not the same across the series which makes it harder to exlain.
+
+
+## 3.3
+What Box-Cox transformation would you select for your retail data (from Exercise 3 in Section 2.10)
+
+```{r}
+retaildata <- readxl::read_excel("retail.xlsx", skip=1)
+myts <- ts(retaildata[,"A3349399C"], frequency=12, start=c(1982,4)) #clothing
+```
+
+```{r}
+autoplot(myts) + xlab('Year') + ylab('Turnover: Clothing')
+
+lambda <- BoxCox.lambda(myts)
+lambda
+
+autoplot(BoxCox(myts, lambda))
+```
+
+With $\lambda$ at `0.02074707`, the variance is constant which makes the forecasting model simpler.
+
+
+## 3.8
+
+For your retail time series (from Exercise 3 in Section 2.10):
+
+a. Split the data into two parts using
+
+```{r}
+myts.train <- window(myts, end=c(2010,12))
+myts.test <- window(myts, start=2011)
+
+```
+
+b. Check that your data have been split appropriately by producing the following plot.
+
+```{r}
+autoplot(myts) +
+  autolayer(myts.train, series="Training") +
+  autolayer(myts.test, series="Test")
+```
+
+c. Calculate forecasts using `snaive` applied to `myts.train`
+
+```{r}
+fc <- snaive(myts.train)
+```
+
+d. Compare the accuracy of your forecasts against the actual values stored in myts.test.
+
+```{r}
+accuracy(fc,myts.test)
+```
+
+e. Check the residuals.
+
+```{r, fig.height=10, fig.width=10}
+checkresiduals(fc)
+```
+
+Do the residuals appear to be uncorrelated and normally distributed?
+
+The residuals appear to be correlated.
+
+Reason: Not a white series. 
+
++ According to the [text](https://otexts.com/fpp2/residuals.html), large values of  
+$Q^*$ or the **Ljung-Box test** suggest that the autocorrelations do not come from a white noise series which in our case is true since the $Q^*$ is large with value `342`.
+
++ For the $Q^*$, the result is significant therefore the residuals are from a white series. 
+
++ The regression above is therefore nugatory although it can be improved. There are lots of areas that need to be explored.
+
+The residuals are not normally distributed. The residuals are not centered around 0 as there is a longer left tail.
+
+
+f. How sensitive are the accuracy measures to the training/test split?
+
+```{r, fig,highlight=9, fig.width=10}
+
+fit1 <- meanf(myts.train, h=24)
+fit2 <- rwf(myts.train,h=24)
+fit3 <- snaive(myts.train,h=24)
+autoplot(myts) +
+  autolayer(fit1, series="Mean", PI=FALSE) +
+  autolayer(fit2, series="Naïve", PI=FALSE) +
+  autolayer(fit3, series="Seasonal naïve", PI=FALSE) +
+  xlab("Year") + ylab("Turnover") +
+  ggtitle("Forecasts for Retail Turnover on Clothing") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+
+```{r}
+
+accuracy(fit1, myts.test)
+accuracy(fit2, myts.test)
+accuracy(fit3, myts.test)
+```
+
+Accuaracy measures are always sensitive to training/test splits. The seasonal naive method is the best of these three methods for this dataset.
+

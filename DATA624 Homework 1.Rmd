@@ -1,0 +1,337 @@
+---
+title: "DATA624 Homeowrk1"
+author: "Javern Wilson"
+date: "2/2/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: yeti
+    highlight: pygments
+---
+
+
+
+```{r message=FALSE, warning=FALSE}
+library(fpp2)
+library(kableExtra)
+```
+
+## Exercise 2.1
+
+Use the help function to explore what the series `gold`, `woolyrnq` and `gas` represent.
+
+```{r}
+#help('gold') # Daily morning gold prices in US dollars. 1 January 1985 – 31 March 1989.
+#help("woolyrnq") # Quarterly production of woollen yarn in Australia: tonnes. Mar 1965 – Sep 1994.
+#help('gas') # Australian monthly gas production: 1956–1995.
+
+```
+
+
+a. Use autoplot() to plot each of these in separate plots.
+
+```{r}
+autoplot(gold) + ggtitle("Daily morning gold prices in US dollars. 1 January 1985 – 31 March 1989") 
+```
+
+```{r}
+autoplot(woolyrnq) + ggtitle("Quarterly production of woollen yarn in Australia: tonnes. Mar 1965 – Sep 1994")
+```
+
+```{r}
+autoplot(gas) + ggtitle("Australian monthly gas production: 1956–1995")
+```
+
+
+b. What is the frequency of each series? Hint: apply the `frequency()` function.
+
+```{r}
+frequency(gold)
+```
+Annually
+
+```{r}
+frequency(woolyrnq)
+```
+Quarterly
+
+```{r}
+frequency(gas)
+```
+Monthly
+
+c. Use which.max() to spot the outlier in the gold series. 
+
+```{r}
+which.max(gold)
+```
+
+Which observation was it?
+
+```{r}
+gold[which.max(gold)]
+```
+
+
+## Exercise 2.2 
+
+Download the file `tute1.csv` from the book website, open it in Excel (or some other spreadsheet application), and review its contents. You should find four columns of information. Columns B through D each contain a quarterly series, labelled Sales, AdBudget and GDP. Sales contains the quarterly sales for a small company over the period 1981-2005. AdBudget is the advertising budget and GDP is the gross domestic product. All series have been adjusted for inflation.
+
+a. Read in data.
+```{r}
+tute1 <- read.csv('tute1.csv')
+```
+
+b. Convert to Time Series
+```{r}
+mytimeseries <- ts(tute1[,-1], start=1981, frequency=4)
+```
+
+c. Construct time series plots of each of the three series
+```{r}
+autoplot(mytimeseries, facets=TRUE)
+```
+
+
+Check what happens when you don’t include `facets=TRUE`
+```{r}
+autoplot(mytimeseries, facets=F)
+```
+
+With out the facet feature all plots are placed onto one axis. This method does not make it easy to visually compare each individual plots. 
+
+
+## Exercise 2.3
+
+Download some monthly Australian retail data from the book website. These represent retail sales in various categories for different Australian states, and are stored in a MS-Excel file.
+
+a. Read in data.
+```{r}
+retaildata <- readxl::read_excel("retail.xlsx", skip=1)
+```
+
+
+b. Select one of the time series as follows (but replace the column name with your own chosen column):
+```{r}
+myts <- ts(retaildata[,"A3349399C"], frequency=12, start=c(1982,4)) #clothing
+```
+
+
+c. Explore your chosen retail time series using the following functions:
+
+`autoplot()`, `ggseasonplot()`, `ggsubseriesplot()`, `gglagplot()`, `ggAcf()`
+
+```{r}
+autoplot(myts) + xlab('Year') + ylab('Turnover: Clothing')
+```
+
+The plot show that there is an increasing trend with strong seasonality.
+
+```{r}
+ggseasonplot(myts, year.labels = T, year.labels.left = T)
+```
+
+In January the sales begin to fall. As spring approach sales increase, dips a little over the summer then in the fall with september (around the time school re-opens) sales hike again. Also this is the time people prepare for the holidays (Nov - Dec) and do their last minute shopping (Thanksgiving, Black Friday and Christmas).
+
+
+```{r}
+ggsubseriesplot(myts)
+```
+
+The horizontal lines represent the mean sales for each month. We can see the changes over time. December being the time where most sales are done.
+
+```{r}
+gglagplot(myts)
+```
+
+Overall, the data shows moderate autocorrelation. However with lag 12 the relationship is strongly positive therefore revealing strong seasonality.
+
+```{r}
+ggAcf(myts)
+```
+
+This is clearly not a white noise series as all the ACFs are past zero. The scalloped shape is due to the seasonality.
+
+
+## Exercise 2.6 {.tabset}
+
+Use the following graphics functions: `autoplot()`, `ggseasonplot()`, `ggsubseriesplot()`, `gglagplot()`, `ggAcf()` and explore features from the following time series: **hsales**, **usdeaths**, **bricksq**, **sunspotarea**, **gasoline**.
+
+Can you spot any seasonality, cyclicity and trend?
+What do you learn about the series?
+
+### hsales
+
+```{r}
+autoplot(hsales)
+```
+This plot displays cyclicity and seasonality. If you look closely at the peaks and troughs they both happen at the same time in each year. In each year, there are two peaks followed by a big dip in sales. Every 8 or so years the house sales are at the lowest. 
+
+```{r}
+ggseasonplot(hsales, year.labels = T, year.labels.left = T)
+```
+
+This plot confirms what I mentioned earlier. Sales increase towards March, decreases in May - July and increases a little in August - October then decreases again from then on. This explains the double peaks in the time series above.
+
+```{r}
+ggsubseriesplot(hsales)
+```
+
+Confirms that I mentioned earlier with the seasonality plot.
+
+```{r}
+gglagplot(hsales)
+```
+
+Lag 1 shows moderate autocorrelation while in lag 15 and 16 there is a lot a white noise.
+
+Below the autocorrelation plot is given along with the coefficients.
+
+```{r}
+ggAcf(hsales, lag.max = 48)
+
+rk <- ggAcf(hsales, lag.max = 48, plot = F)
+lag <- rk[["lag"]]
+lag <- lag[,,1]
+corrs <- rk[["acf"]]
+corrs <- corrs[,,1]
+
+autocorr <- data.frame(lag, corrs)
+
+kable(autocorr[-1,]) %>% kable_styling(full_width = F) %>% scroll_box(height = "400px", width = "300px")
+
+```
+
+
+In this graph: $r_1$ is higher than for the other lags while $r_{42}$ is more negative than for the other lags. This is due to the seasonal pattern in the data. The highest peaks tend to be every 12 months and the longest troughs tend to be 10 - 12 months apart.
+
+
+
+### usdeaths
+
+```{r}
+autoplot(usdeaths)
+```
+
+Seasonality - If you look at the plot closely, you can see the peaks happen in the middle of each year and the troughs occur at the start of each year.
+
+Cyclicity - The impact occurs every year.
+
+```{r}
+ggseasonplot(usdeaths, year.labels = T, year.labels.left = T)
+```
+
+Here is a clear and obvious view of what happens through out the year. July is the peak time when most death occurred. 
+
+```{r}
+ggsubseriesplot(usdeaths)
+```
+
+Closer look: Febuary has the lowest average death rates.
+
+```{r}
+gglagplot(usdeaths, do.lines = F)
+```
+
+Lag 1, *12*, 13 shows strong positive correlations while lags 6 shows negative correlations
+
+```{r}
+ggAcf(usdeaths)
+```
+
+Here we see that there tends to be cyclic impact to the us death rates every year. Every 6 months the peaks and troughs occur. The highest peaks are at 1, 12 and 24 while the troughs are at 6 and 18. The plot also backs the point I made about the correlations in lags 1, 12 and 6.
+
+### bricksq
+
+```{r}
+autoplot(bricksq)
+```
+
+This plot has a pattern to it but there is not an even space between each space. There is not any predictability to when these peacks and troughs will occur. This graph would be considered cyclic but also has a positive trend followed by slow decrease.
+
+```{r}
+ggseasonplot(bricksq, year.labels = T, year.labels.left = T)
+```
+
+Here, we see that brick production has consistently increased over the years. The trends tends to be lowest in Q1 then typically peaks in Q2, levels off in Q3 then decrases slightling in Q4.
+
+
+```{r}
+ggsubseriesplot(bricksq)
+```
+
+Confirms what was stated in the seasonality plot above.
+
+```{r}
+gglagplot(bricksq)
+```
+
+
+```{r}
+ggAcf(bricksq)
+```
+
+This ACF plot shows that the greatest autocorrelation values occur at lags 4, 8, 12, 16, and 20. If you look at the lag plot above you can see that the the relationship appears strongest for these lags, thus supporting point for this graph.
+
+### sunspotarea
+
+```{r}
+autoplot(sunspotarea)
+```
+
+This plot shows cyclicity and no seanality or trend. The 'double' peaks seems to happen every other decade.
+
+```{r}
+#ggseasonplot(sunspotarea)
+```
+
+
+```{r}
+#ggsubseriesplot(sunspotarea)
+```
+
+
+```{r}
+gglagplot(sunspotarea)
+```
+
+
+```{r}
+ggAcf(sunspotarea)
+```
+
+The rise and falls in the ACF are due to cyclicity. There are some white noise in the data especially at lag 9, 13, 18 and 19. The peaks and troughs tend to be every 10 years.
+
+### gasoline
+
+```{r}
+autoplot(gasoline)
+```
+
+Finally, this plot displays cyclicity with increasing trend. There is no obvious or regular pattern to indicate seasonality.
+ 
+```{r}
+ggseasonplot(gasoline, year.labels = T, year.labels.left = T)
+```
+
+This plot confirms what I mentioned above with having no obvious pattern but the gasoline production increases over the weeks.
+
+```{r}
+#ggsubseriesplot(gasoline)
+```
+
+
+```{r}
+gglagplot(gasoline, do.lines = F)
+```
+
+All lags apprear to be highly correlated positively.
+
+```{r}
+ggAcf(gasoline)
+```
+
+There are no white noise in this series as the spikes are outside the bounds on the graph so some times series data defintely exists in this data. 

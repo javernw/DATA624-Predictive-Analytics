@@ -1,0 +1,134 @@
+---
+title: "DATA624 Homework 3"
+author: "Javern Wilson"
+date: "2/14/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: yeti
+    highlight: pygments
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(fpp2)
+library(seasonal)
+```
+
+## 6.2
+
+The `plastics` data set consists of the monthly sales (in thousands) of product A for a plastics manufacturer for five years.
+
+a. Plot the time series of sales of product A. Can you identify seasonal fluctuations and/or a trend-cycle?
+
+```{r}
+autoplot(plastics) 
+```
+
+Yes. There seems to be an upward trend. The data exhibit rises and falls that are not of fixed period. As for seasonality fluctuations, there more demand in mid year and substantially lower demand at the beginning or end. 
+
+b. Use a classical multiplicative decomposition to calculate the trend-cycle and seasonal indices.
+
+```{r}
+plastics %>% decompose(type="multiplicative") %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Classical multiplicative decomposition
+    of the sales of Product A.")
+```
+
+
+c. Do the results support the graphical interpretation from part a? 
+
+Yes, the graphic above does confirm my assumption above.
+
+
+d. Compute and plot the seasonally adjusted data.
+
+```{r, fig.width=8, fig.height=6}
+decompose_p = decompose(plastics, type = "multiplicative")
+adjusted_p = plastics / decompose_p$seasonal
+
+autoplot(plastics, series="Data") +
+  autolayer(adjusted_p, series="Seasonally Adjusted", size= 0.9) +
+  ggtitle("Sales of Product A") +
+  scale_colour_manual(values=c("gray","red"),
+             breaks=c("Data","Seasonally Adjusted"))
+
+```
+
+e. Change one observation to be an outlier (e.g., add 500 to one observation), and recompute the seasonally adjusted data. What is the effect of the outlier?
+
+```{r, fig.width=8, fig.height=6}
+plastics2 = plastics
+plastics2[28] = plastics2[28] + 1000
+
+decompose_p2 = decompose(plastics2, type = "multiplicative")
+adjusted_p2 = plastics2 / decompose_p2$seasonal
+
+autoplot(plastics2, series="Data") +
+  autolayer(adjusted_p2, series="Seasonally Adjusted", size= 0.9) +
+  ggtitle("Sales of Product A") +
+  scale_colour_manual(values=c("gray","red"),
+             breaks=c("Data","Seasonally Adjusted"))
+```
+
+The outlier does push the pattern out of sync. The seasonality effect decreased. Let's see:
+
+```{r, fig.width=9, fig.height= 8}
+p1 <- autoplot(decompose_p$trend, color = "blue", size = 1)
+p2 <- autoplot(decompose_p2$trend, color = "darkgreen", size = 1)
+
+gridExtra::grid.arrange(p1, p2, nrow=2)
+```
+
+
+
+f. Does it make any difference if the outlier is near the end rather than in the middle of the time series?
+
+```{r, fig.width=8, fig.height=6}
+plastics3 = plastics
+plastics3[56] = plastics3[56] + 1000
+
+decompose_p3 = decompose(plastics3, type = "multiplicative")
+adjusted_p3 = plastics3 / decompose_p3$seasonal
+
+autoplot(plastics3, series="Data") +
+  autolayer(adjusted_p3, series="Seasonally Adjusted", size= 0.9) +
+  ggtitle("Sales of Product A") +
+  scale_colour_manual(values=c("gray","red"),
+             breaks=c("Data","Seasonally Adjusted"))
+```
+
+Yes, the difference is that the trend lowered some. Let's compare:
+```{r, fig.width=9, fig.height= 8}
+p1 <- autoplot(decompose_p$trend, color = "blue", size = 1)
+p3 <- autoplot(decompose_p3$trend, color = "orange", size = 1)
+
+gridExtra::grid.arrange(p1, p3, nrow=2)
+```
+
+
+## 6.3
+
+Recall your retail time series data (from Exercise 3 in Section 2.10).  
+
+```{r}
+retaildata <- readxl::read_excel("retail.xlsx", skip=1)
+myts <- ts(retaildata[,"A3349399C"], frequency=12, start=c(1982,4)) #clothing
+
+```
+
+Decompose the series using X11.
+
+```{r}
+myts %>% seas(x11="") -> fit
+autoplot(fit) +
+  ggtitle("X11 decomposition of Retail Clothing")
+```
+
+Does it reveal any outliers, or unusual features that you had not noticed previously?
+
+Between 2007 and 2010 outliers are revealed based on the trend plot.
