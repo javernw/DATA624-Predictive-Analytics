@@ -1,0 +1,353 @@
+---
+title: "DATA624 Homework 6: ARIMA"
+author: "Javern Wilson"
+date: "3/22/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: journal
+    highlight: pygments
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(fpp2)
+library(urca)
+
+```
+
+
+## 8.1
+
+Figure `8.31` shows the ACFs for 36 random numbers, 360 random numbers and 1,000 random numbers. 
+
+a. Explain the differences among these figures. Do they all indicate that the data are white noise?
+
+![](https://github.com/javernw/DATA624-Predictive-Analytics/blob/master/acf%20plots.PNG?raw=true)
+
+Time series data are considered white noise if less than 5% of the ACF spikes are above the 95% limits blue line. By looking at the plots, they all indicate that the data are white noise. 
+
+
+b. Why are the critical values at different distances from the mean of zero? Why are the autocorrelations different in each figure when they each refer to white noise?
+
+As the sample size become larger the ACF spikes become less significant and drops closer to zero.
+
+## 8.2
+
+A classic example of a non-stationary series is the daily closing IBM stock price series (data set `ibmclose`). Use R to plot the daily closing prices for IBM stock and the ACF and PACF. Explain how each plot shows that the series is non-stationary and should be differenced.
+
+Plot
+```{r}
+ggtsdisplay(ibmclose)
+```
+
+The data is definitely non-stationary with some seasonality. The above ACF is “decaying”, or decreasing, very slowly, and remains well above the significance range. Also, note that the PACF plot has a significant spike only at lag 1, meaning that all the higher-order autocorrelations are effectively explained by the lag 1 autocorrelation.
+
+
+## 8.3 {.tabset .tabset-fade .tabset-pills}
+
+For the following series, find an appropriate Box-Cox transformation and order of differencing in order to obtain stationary data.
+
+**Note**
+
+If the test statistic is much bigger than the 1% critical value calculated by the `ur.kpss()` function, this indicates that the data is non-stationary hence rejecting the null hypothesis. Therefore we may need to difference the data to make it stationary.
+
+### `usnetelec`
+
+```{r}
+autoplot(usnetelec)
+```
+
+
+```{r}
+ur.kpss(usnetelec) %>% summary()
+ndiffs(ibmclose) # 1 order of differencing required...non seasonal data
+usnetelec %>% diff() %>% autoplot()
+```
+
+
+### `usgdp`
+
+```{r}
+autoplot(usgdp)
+ur.kpss(usgdp) %>% summary()
+```
+
+```{r}
+ndiffs(usgdp)
+nsdiffs(usgdp) # no seasonal differencing required
+
+autoplot(diff(diff(usgdp)))
+```
+
+
+### `mcopper`
+
+```{r}
+autoplot(mcopper)
+ur.kpss(mcopper) %>% summary()
+```
+
+```{r}
+ndiffs(mcopper)
+
+autoplot(diff(mcopper))
+```
+
+Let's try transforming the data.
+```{r}
+mcopper_lambda <- BoxCox.lambda(mcopper)
+mcopper %>% BoxCox(mcopper_lambda) %>% diff() %>% autoplot()
+```
+
+
+### `enplanements`
+
+```{r}
+autoplot(enplanements)
+ur.kpss(enplanements) %>% summary()
+ndiffs(enplanements)
+nsdiffs(enplanements)
+```
+
+Sometimes it is necessary to take both a seasonal difference and a first difference to obtain stationary data. The second `diff()` is seasonal and the first `diff()` is for first difference.
+```{r}
+enp_lambda <- BoxCox.lambda(enplanements)
+enplanements %>% BoxCox(enp_lambda) %>% diff() %>% diff() %>% autoplot()
+```
+
+
+### `visitors`
+
+```{r}
+autoplot(visitors)
+ur.kpss(visitors) %>% summary()
+```
+```{r}
+ndiffs(visitors)
+nsdiffs(visitors)
+```
+
+Same situation as with `enplanements`.
+
+```{r}
+vis_lambda <- BoxCox.lambda(visitors)
+visitors %>% BoxCox(vis_lambda) %>% diff() %>% diff() %>% autoplot()
+```
+
+
+## 8.5.
+
+For your retail data (from Exercise 3 in Section 2.10), find the appropriate order of differencing (after transformation if necessary) to obtain stationary data.
+
+```{r}
+retaildata <- readxl::read_excel("retail.xlsx", skip=1)
+myts <- ts(retaildata[,"A3349399C"], frequency=12, start=c(1982,4)) #clothing
+```
+
+```{r}
+autoplot(myts)
+ur.kpss(myts) %>% summary()
+```
+
+```{r}
+myts_lambda <- BoxCox.lambda(myts)
+
+myts %>% BoxCox(lambda = myts_lambda) %>% ndiffs()
+myts %>% BoxCox(lambda = myts_lambda) %>% nsdiffs()
+
+```
+
+```{r}
+myts %>% BoxCox(myts_lambda) %>% diff() %>% diff() %>% autoplot()
+```
+
+
+## 8.6
+
+Use R to simulate and plot some data from simple ARIMA models. 
+
+a. Use the following R code to generate data from an AR(1) model with $\phi_{1} = 0.6$ and $\sigma^2=1$. The process starts with $y_1=0$.
+
+```{r}
+y <- ts(numeric(100))
+e <- rnorm(100)
+for(i in 2:100)
+  y[i] <- 0.6*y[i-1] + e[i]
+```
+
+b. Produce a time plot for the series. 
+
+```{r}
+autoplot(y)
+```
+
+
+How does the plot change as you change $\phi_1$?
+
+```{r, fig.width= 10, fig.height= 8}
+y <- ts(numeric(100))
+y2 <- ts(numeric(100))
+y3 <- ts(numeric(100))
+y4 <- ts(numeric(100))
+e <- rnorm(100)
+for(i in 2:100){
+  y[i] <- 0.6*y[i-1] + e[i]
+  y2[i] <- 0.1*y2[i-1] + e[i]
+  y3[i] <- 0.8*y3[i-1] + e[i]
+  y4[i] <- 1*y4[i-1] + e[i]
+}
+
+gridExtra::grid.arrange(
+  autoplot(y2) + ggtitle("phi = 0.1"),
+  autoplot(y) + ggtitle("phi = 0.6"),
+  autoplot(y3) + ggtitle("phi = 0.8"),
+  autoplot(y4) + ggtitle("phi = 1"), nrow = 2
+)
+```
+
+When $\phi_1$ is gets smaller the plot becomes more stationary. As the value increases the plot moves towards a non-stationary plot, that is there is a slow decay. This confirms the notion that The AR(1) process is stationary if only if $\|\phi\|<1$ or $−1 < \phi < 1$.
+
+c. Write your own code to generate data from an MA(1) model with $\theta_{1} = 0.6$ and $\sigma^2=1$.
+
+```{r}
+y_ma1 <- ts(numeric(100))
+e <- rnorm(100)
+for(i in 2:100)
+  y_ma1[i] <- 0.6*e[i-1] + e[i]
+
+```
+
+
+d. Produce a time plot for the series. 
+
+```{r}
+autoplot(y_ma1)
+```
+
+
+How does the plot change as you change $\theta_1$?
+
+```{r, fig.width= 10, fig.height= 8}
+y_ma1 <- ts(numeric(100))
+y2_ma1 <- ts(numeric(100))
+y3_ma1 <- ts(numeric(100))
+y4_ma1 <- ts(numeric(100))
+e <- rnorm(100)
+for(i in 2:100){
+  y_ma1[i] <- 0.6*e[i-1] + e[i]
+  y2_ma1[i] <- 0.1*e[i-1] + e[i]
+  y3_ma1[i] <- 0.8*e[i-1] + e[i]
+  y4_ma1[i] <- 1*e[i-1] + e[i]
+}
+
+gridExtra::grid.arrange(
+  autoplot(y2_ma1) + ggtitle("phi = 0.1"),
+  autoplot(y_ma1) + ggtitle("phi = 0.6"),
+  autoplot(y3_ma1) + ggtitle("phi = 0.8"),
+  autoplot(y4_ma1) + ggtitle("phi = 1"), nrow = 2
+)
+```
+
+The plots remained stationary whether $\theta_1$ increased or not.
+
+e. Generate data from an ARMA(1,1) model with $\phi_{1} = 0.6$, $\theta_{1} = 0.6$ and $\sigma^2=1$.
+
+```{r}
+y_ARMA <- ts(numeric(100))
+e <- rnorm(100)
+for(i in 2:100)
+  y_ARMA[i] <- 0.6*y_ARMA[i-1] + 0.6*e[i-1] + e[i]
+```
+
+
+f. Generate data from an AR(2) model with $\phi_{1} = -0.8$, $\theta_{1} = 0.3$ and $\sigma^2=1$. (Note that these parameters will give a non-stationary series.)
+
+```{r}
+y_AR2 <- ts(numeric(100))
+e <- rnorm(100)
+for(i in 3:100)
+  y_AR2[i] <- (-0.8*y_AR2[i-1]) + (0.3*y_AR2[i-2]) + e[i]
+
+```
+
+
+g. Graph the latter two series and compare them.
+
+```{r, fig.width=10, fig.height=8}
+gridExtra::grid.arrange(autoplot(y_ARMA) + ggtitle("ARMA"), autoplot(y_AR2) + ggtitle("AR(2)"))
+
+```
+
+ARMA - Plot remains stationary.
+
+AR(2) - As the time increase so the does the variance in AR(2) making it non-stationary.
+
+## 8.7
+
+Consider `wmurders`, the number of women murdered each year (per 100,000 standard population) in the United States.
+
+a. By studying appropriate graphs of the series in R, find an appropriate ARIMA($p, d, q$) model for these data.
+
+```{r}
+autoplot(wmurders)
+ndiffs(wmurders)
+wm_lambda <- BoxCox.lambda(wmurders)
+wmurders %>% BoxCox(wm_lambda) %>% diff() %>% diff()  %>% ggtsdisplay()
+```
+
+The appropriate model for this data is ARIMA(1,2,1).
+
+```{r}
+wm_fit <- Arima(wmurders, order = c(1,2,1)) 
+summary(wm_fit)
+```
+
+
+b. Should you include a constant in the model? Explain.
+
+According to the text a constant is included unless $d=2$. In this case for the model d is equal to 2 so no I would not include a constant.
+
+
+c. Write this model in terms of the backshift operator.
+
+$$(1 - B)^{2} y_{t}$$
+
+d. Fit the model using R and examine the residuals. Is the model satisfactory?
+
+```{r}
+
+checkresiduals(wm_fit)
+
+```
+Yes. The ACF plot of the residuals from the model shows that all autocorrelations are within the threshold limits, indicating that the residuals are behaving like white noise. A portmanteau test returns a large p-value (`0.1335`), also confirming that the residuals are white noise.
+
+e. Forecast three times ahead.
+
+```{r}
+forecast(wm_fit, h=3)
+```
+
+ Check your forecasts by hand to make sure that you know how they have been calculated.
+ 
+ 
+
+f. Create a plot of the series with forecasts and prediction intervals for the next three periods shown.
+
+```{r}
+autoplot(forecast(wm_fit, h=3), PI = T)
+```
+
+
+g. Does `auto.arima()` give the same model you have chosen? If not, which model do you think is better?
+
+```{r}
+wm_fit2 <- auto.arima(wmurders)
+summary(wm_fit2)
+```
+
+Yes, same model was chosen by `auto.arima()`.
