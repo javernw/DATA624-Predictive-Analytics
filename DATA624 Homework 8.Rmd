@@ -1,0 +1,424 @@
+---
+title: "DATA624 Homework 8"
+author: "Javern Wilson"
+date: "4/20/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: flatly
+    highlight: pygments
+---
+
+```{r message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(caret)
+library(plotmo)
+library(earth)
+library(kernlab)
+library(forecast)
+library(ipred)
+library(mlbench)
+library(AppliedPredictiveModeling)
+```
+
+
+# 7.2
+
+Friedman (1991) introduced several benchmark data sets create by simulation. One of these simulations used the following nonlinear equation to create data: 
+
+$$y = 10 sin (\pi x_1 x_2) + 20(x_3−0.5)^2 + 10x_4 +5x_5 + N(0,\sigma^2)$$
+
+where the x values are random variables uniformly distributed between [0, 1] (there are also 5 other non-informative variables also created in the simulation). The package mlbench contains a function called `mlbench.friedman1` that simulates these data:
+
+```{r}
+set.seed(200) 
+trainingData <- mlbench.friedman1(200, sd = 1)  
+trainingData$x <- data.frame(trainingData$x) 
+featurePlot(trainingData$x, trainingData$y) 
+testData <- mlbench.friedman1(5000, sd = 1) 
+testData$x <- data.frame(testData$x) 
+```
+
+Tune several models on these data.
+
+## Which models appear to give the best performance? 
+
+### Build, Tune and Explore Models {.tabset .tabset-fade .tabset-pills}
+
+#### Multivariate Adaptive Regression Splines (MARS)
+
+```{r}
+# Define the candidate models to test 
+marsGrid <- expand.grid(.degree = 1:2, .nprune = 2:38) 
+set.seed(100) 
+
+marsTuned <- train(trainingData$x, trainingData$y, 
+                   method = "earth", 
+                   tuneGrid = marsGrid, 
+                   trControl = trainControl(method = "cv", number = 10))
+
+
+```
+
+
+```{r}
+ marsTuned
+```
+
+```{r}
+marsTuned$bestTune
+```
+
+
+```{r}
+ggplot(marsTuned)
+```
+
+With MARS, the optimal model retains 15 terms and includes up to 2nd degree interactions. This is confirmed again below:
+
+```{r}
+marsTuned$finalModel
+```
+
+
+```{r}
+varImp(marsTuned)
+plot(varImp(marsTuned))
+```
+
+The function `plotmo` plots regression surfaces for a model. It creates a separate plot for each variable showing the predicted response as the predictor variable changes. [Further details found here](www.milbo.org/doc/plotmo-noted.pdf).
+
+```{r}
+plotmo(marsTuned)
+```
+
+
+###### Variable Importance
+
+If you look at the `plotmo` function below, you can see that only 5 variables were plotted. Now when we look at the output below, only `x1, x4, x2, x3, x5` are considered as important in the model.
+
+
+
+#### Neural Networks (NNET)
+```{r}
+## Create a specific candidate set of models to evaluate: 
+nnetGrid <- expand.grid(decay = c(0, 0.01, .1), size = c(1:10), bag = FALSE) 
+
+set.seed(100) 
+nnetTuned <- train(trainingData$x, trainingData$y,  
+                  method = "avNNet",  
+                  tuneGrid = nnetGrid,  
+                  trControl = trainControl(method = "cv", number = 10),
+                  preProc = c("center", "scale"),  
+                  linout = TRUE,  trace = FALSE,  
+                  MaxNWts = 10 * (ncol(trainingData$x) + 1) + 10 + 1, 
+                  maxit = 500)
+
+```
+
+```{r}
+nnetTuned
+
+```
+
+```{r}
+nnetTuned$bestTune
+```
+
+```{r}
+nnetTuned$finalModel
+```
+
+```{r}
+ggplot(nnetTuned)
+```
+
+```{r}
+varImp(nnetTuned)
+```
+
+
+```{r}
+plotmo(nnetTuned)
+```
+
+With ``NNET` 10 variables are considered as important to the response variable.
+
+
+
+#### Support Vector Machines (SVM)
+
+```{r}
+svmTuned <- train(trainingData$x, trainingData$y, 
+                     method = "svmRadial", 
+                     preProc = c("center", "scale"),
+                     tuneLength = 14, 
+                     trControl = trainControl(method = "cv"))
+
+```
+
+```{r}
+svmTuned
+
+```
+
+```{r}
+svmTuned$bestTune
+```
+
+
+```{r}
+svmTuned$finalModel
+```
+
+
+```{r}
+ggplot(svmTuned)
+```
+
+
+```{r}
+varImp(svmTuned)
+plot(varImp(svmTuned))
+```
+
+
+
+```{r}
+plotmo(svmTuned)
+```
+
+
+#### K-Nearest Neighbors (KNN)
+
+```{r}
+knnTune <- train(trainingData$x, 
+                 trainingData$y,
+                 method = "knn",
+                 preProc = c("center", "scale"), 
+                 tuneGrid = data.frame(.k = 1:20),
+                 trControl = trainControl(method = "cv"))
+
+```
+
+```{r}
+knnTune
+```
+
+```{r}
+knnTune$bestTune
+```
+
+```{r}
+knnTune$finalModel
+```
+
+```{r}
+ggplot(knnTune)
+```
+
+```{r}
+varImp(knnTune)
+plot(varImp(knnTune))
+```
+
+```{r}
+plotmo(knnTune)
+```
+
+
+#### Evaluation
+
+```{r}
+# MARS
+marspred <- predict(marsTuned, newdata = testData$x)
+marspv <- postResample(pred = marspred, obs = testData$y) #performance values
+
+# NNET
+nnpred <- predict(nnetTuned, newdata = testData$x)
+nnpv <- postResample(pred = nnpred, obs = testData$y) 
+
+# SVM
+svmpred <- predict(svmTuned, newdata = testData$x)
+svmpv <- postResample(pred = svmpred, obs = testData$y) 
+
+#KNN
+knnpred <- predict(knnTune, newdata = testData$x)
+knnpv <- postResample(pred = knnpred, obs = testData$y)
+
+data.frame(marspv, nnpv, svmpv, knnpv) %>% kableExtra::kable() %>% kableExtra::kable_styling(bootstrap_options = "striped")
+```
+
+
+It seems as though that the MARS model performed the best on the data. This is due to the fact that it has the lowest performance scores shown in the table above.
+
+Does MARS select the informative predictors (those named X1–X5)?
+
+Yes, and only those 5 predictors. Also the other models considers the variable `X1` as the most important predictor while the other two models has `X4` at the top.
+
+
+
+
+
+# 7.5
+
+
+Exercise 6.3 describes data for a chemical manufacturing process. Use the same data imputation, data splitting, and pre-processing steps as before and train several nonlinear regression models.
+
+### Preprocessing
+
+
+```{r}
+data("ChemicalManufacturingProcess")
+
+preprocessing <- preProcess(ChemicalManufacturingProcess[,-1], method = c("center", "scale", "knnImpute", "corr", "nzv"))
+Xpreprocess <- predict(preprocessing, ChemicalManufacturingProcess[,-1])
+
+yield <- as.matrix(ChemicalManufacturingProcess$Yield)
+
+set.seed(789)
+split2 <- yield %>%
+  createDataPartition(p = 0.8, list = FALSE, times = 1)
+
+Xtrain.data  <- Xpreprocess[split2, ] #chem train
+xtest.data <- Xpreprocess[-split2, ] #chem test
+Ytrain.data  <- yield[split2, ] #yield train
+ytest.data <- yield[-split2, ] #yield test
+
+```
+
+
+### (a) Which nonlinear regression model gives the optimal resampling and test set performance?
+
+
+#### NNET
+
+```{r}
+nnetGrid <- expand.grid(decay = c(0, 0.01, .1), size = c(1:10), bag = FALSE)
+
+set.seed(200)
+chem_nnet_tuned <- train(Xtrain.data, Ytrain.data,
+                  method = "avNNet",
+                  tuneGrid = nnetGrid,
+                  trControl = trainControl(method = "cv", number = 10),
+                  linout = TRUE,  trace = FALSE,
+                  MaxNWts = 10 * (ncol(Xtrain.data) + 1) + 10 + 1,
+                  maxit = 500)
+```
+
+#### MARS
+
+```{r}
+marsGrid <- expand.grid(.degree = 1:3, .nprune = 2:100)
+set.seed(200)
+
+chem_mars_tuned <- train(Xtrain.data, Ytrain.data,
+                   method = "earth",
+                   tuneGrid = marsGrid,
+                   trControl = trainControl(method = "cv", number = 10))
+```
+
+
+#### SVM
+
+```{r}
+set.seed(200)
+chem_svm_tuned <- train(Xtrain.data, Ytrain.data,
+                     method = "svmRadial",
+                     preProc = c("center", "scale"),
+                     tuneLength = 14,
+                     trControl = trainControl(method = "cv"))
+
+```
+
+
+#### KNN
+
+```{r}
+set.seed(200)
+chem_knn_tuned <- train(Xtrain.data,
+                        Ytrain.data,
+                        method = "knn",
+                        tuneGrid = data.frame(.k = 1:20),
+                        trControl = trainControl(method = "cv"))
+```
+
+
+#### Evaluation
+```{r}
+nnpred2 <- predict(chem_nnet_tuned, newdata = xtest.data)
+nnpv2 <- postResample(pred = nnpred2, obs = ytest.data)
+
+marspred2 <- predict(chem_mars_tuned, newdata = xtest.data)
+marspv2 <- postResample(pred = marspred2, obs = ytest.data)
+
+svmpred2 <- predict(chem_svm_tuned, newdata = xtest.data)
+svmpv2 <- postResample(pred = svmpred2, obs = ytest.data)
+
+knnpred <- predict(chem_knn_tuned, newdata = xtest.data)
+knnpv <- postResample(pred = knnpred, obs = ytest.data)
+
+data.frame(nnpv, marspv, svmpv, knnpv) %>% kableExtra::kable() %>% kableExtra::kable_styling(bootstrap_options = "striped")
+```
+
+MARS is again the most optimal model.
+
+Output from MARS Model
+
+```{r}
+chem_mars_tuned
+chem_mars_tuned$bestTune
+chem_mars_tuned$finalModel
+ggplot(chem_mars_tuned)
+plotmo(chem_mars_tuned)
+```
+
+
+### (b) Which predictors are most important in the optimal nonlinear regression model?
+
+Do either the biological or process variables dominate the list? How do the top ten important predictors compare to the top ten predictors from the optimal linear model?
+
+```{r, fig.height= 12, fig.width=10}
+
+varImp(chem_mars_tuned)
+plot(varImp(chem_mars_tuned))
+
+```
+
+
+```{r, fig.height= 12, fig.width=10}
+ridgeGrid <- data.frame(.lambda = seq(0, .1, length = 15))
+set.seed(101)
+
+ridgeRegFit <- train(Xtrain.data, Ytrain.data, method = "ridge", tuneGrid = ridgeGrid, trControl = trainControl(method = "cv", number = 10))
+
+varImp(ridgeRegFit)
+
+predictions <- ridgeRegFit %>% predict(xtest.data)
+
+cbind(
+  RMSE = RMSE(predictions, ytest.data),
+  R_squared = caret::R2(predictions, ytest.data)
+)
+
+plot(varImp(ridgeRegFit))
+```
+
+Both of the non-linear and linear optimal models have the manufacturing predictors as most important variables. However, the MARS non-linear model only considers the manufacturing process as important with `ManufacturingProcess32` first then `ManufacturingProcess13`.
+The linear model, on the other hand, has those two predictors as important but the other way around and also considers biological predictors in it's top 10.
+
+### (c) Explore the relationships between the top predictors and the response
+
+for the predictors are unique to the optimal nonlinear regression model. Do these plots reveal intuition about the biological or process predictors and their relationship with yield?
+
+```{r}
+cor(yield, ChemicalManufacturingProcess$ManufacturingProcess32)
+cor(yield, ChemicalManufacturingProcess$ManufacturingProcess13)
+```
+
+Manufacturing proceses are possibly the steps taken to create the end product graded by a rate. Since only manufacturing processes are the most important in this model we can infer that with `ManufacturingProcess32`there is a positive correlation here which make sense. If the process is great then the product will be good. On the other hand, the outcome variable has a negative correlation with the `ManufacturingProcess13` which means that if the process goes bad, then the product will not be at it's best.
+

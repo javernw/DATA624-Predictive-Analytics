@@ -1,0 +1,250 @@
+---
+title: "DATA624 Homework 7"
+author: "Javern Wilson"
+date: "3/31/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: flatly
+    highlight: pygments
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(AppliedPredictiveModeling)
+library(tidyverse)
+library(MASS)
+library(caret)
+library(pls)
+library(Amelia)
+```
+
+
+
+## 6.2
+
+Developing a model to predict permeability (see Sect.1.4) could save signiﬁcant resources for a pharmaceutical company, while at the same time more rapidly identifying molecules that have a suﬃcient permeability to become a drug:
+
+(a) Start R and use these commands to load the data:
+
+```{r}
+data(permeability)
+```
+
+The matrix `fingerprints` contains the 1,107 binary molecular predictors for the 165 compounds, while `permeability` contains permeability response. 
+
+(b) The ﬁngerprint predictors indicate the presence or absence of substructures of a molecule and are often sparse meaning that relatively few of the molecules contain each substructure. Filter out the predictors that have low frequencies using the `nearZeroVar` function from the caret package. How many predictors are left for modeling? 
+
+```{r}
+nzv <- nearZeroVar(fingerprints)
+not_nzv <- fingerprints[, -nzv]
+ncol(not_nzv)
+```
+
+There are `388` predictors remaining for modeling.
+
+(c) Split the data into a training and a test set, pre-process the data, and tune a PLS model. How many latent variables are optimal and what is the corresponding resampled estimate of R2? 
+
+```{r}
+set.seed(456)
+split <- permeability %>%
+  createDataPartition(p = 0.8, list = FALSE, times = 1)
+
+Xtrain.data  <- not_nzv[split, ] #fingerprints train
+xtest.data <- not_nzv[-split, ] #fingerprints test
+Ytrain.data  <- permeability[split, ] #permability train
+ytest.data <- permeability[-split, ] #permability test
+```
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+plsmod <- train(x = Xtrain.data, y = Ytrain.data, method = "pls", tuneLength = 20, trControl = ctrl, preProc = c("center", "scale"))
+```
+
+```{r}
+plsmod
+plot(plsmod)
+```
+
+```{r}
+plsmod$bestTune
+```
+
+The best tuning parameter is 8 which minimizes the cross validation error, that is, the best estimate for the test error of model.
+
+```{r}
+summary(plsmod$finalModel)
+```
+
+The optimal number of principal components included in the PLS model is 8. This captures 63.58% of the variation in the predictors and 78.65% of the variation in the outcome variable (permability).
+
+
+(d) Predict the response for the test set. What is the test set estimate of R2? 
+
+```{r}
+predictions <- plsmod %>% predict(xtest.data)
+
+cbind(
+  RMSE = RMSE(predictions, ytest.data),
+  R_squared = caret::R2(predictions, ytest.data)
+)
+```
+
+```{r}
+plot(predictions, col = "darkgreen", main = "Observed (Permability) vs. Predicted", xlab = "", ylab = "Predictions")
+par(new = TRUE)
+plot(ytest.data, col = "blue", axes=F, ylab = "", xlab="Observed") 
+abline(0, 1, col='orange')
+```
+
+
+(e) Try building other models discussed in this chapter. Do any have better predictive performance? 
+
+```{r}
+ridgeGrid <- data.frame(.lambda = seq(0, .1, length = 15)) 
+set.seed(100) 
+ridgeRegFit <- train(Xtrain.data, Ytrain.data, method = "ridge", tuneGrid = ridgeGrid, trControl = ctrl, preProc = c("center", "scale", "knnImpute"))
+ridgeRegFit 
+```
+```{r}
+plot(ridgeRegFit)
+```
+
+Model had some issue when fitting in some validation folds.
+
+```{r}
+predictions2 <- ridgeRegFit %>% predict(xtest.data)
+
+cbind(
+  RMSE = RMSE(predictions2, ytest.data),
+  R_squared = caret::R2(predictions2, ytest.data)
+)
+```
+
+```{r}
+plot(ytest.data, predictions2, ylab = "Predictions", xlab = "Observed", main = "Observed vs Predicted")
+abline(abline(0, 1, col='red'))
+```
+
+
+(f) Would you recommend any of your models to replace the permeability laboratory experiment?
+
+The PLS model worked better on this data due to the lower accuracy scores revealed. 
+
+
+## 6.3
+
+A chemical manufacturing process for a pharmaceutical product was discussed in Sect.1.4. In this problem, the objective is to understand the relationship between biological measurements of the raw materials (predictors), measurements of the manufacturing process (predictors), and the response of product yield. Biological predictors cannot be changed but can be used to assess the quality of the raw material before processing. On the other hand, manufacturing process predictors can be changed in the manufacturing process. Improving product yield by 1% will boost revenue by approximately one hundred thousand dollars per batch:
+
+
+(a) Start R and use these commands to load the data:
+
+```{r}
+ data("ChemicalManufacturingProcess")
+```
+
+The matrix `processPredictors` contains the 57 predictors (12 describing the input biological material and 45 describing the process predictors) for the 176 manufacturing runs. `yield` contains the percent yield for each run.
+
+(b) A small percentage of cells in the predictor set contain missing values. Use an imputation function to fill in these missing values (e.g., see Sect.3.8). 
+
+```{r}
+missmap(ChemicalManufacturingProcess, col = c("yellow", "navy"))
+```
+
+We can see some predictors do have missing values.
+
+Below I will preprocess the data. This includes:
+
+1. `centering` and `scaling` the data
+2. Using the `knn` imputation method to replace missing values
+3. Using `corr` to filter out highly correlated predictors 
+4. `nzv` to filter near zero variance predictors that could cause trouble.
+
+```{r}
+#preprocess data excluding the yeild column
+preprocessing <- preProcess(ChemicalManufacturingProcess[,-1], method = c("center", "scale", "knnImpute", "corr", "nzv")) 
+
+Xpreprocess <- predict(preprocessing, ChemicalManufacturingProcess[,-1])
+missmap(Xpreprocess, col = c("yellow", "navy"))
+
+```
+
+As seen in this second plot, the missing values were replaced and the data is now complete.
+
+(c) Split the data into a training and a test set, pre-process the data, and tune a model of your choice from this chapter. What is the optimal value of the performance metric? 
+
+```{r}
+yield <- as.matrix(ChemicalManufacturingProcess$Yield)
+
+set.seed(789)
+split2 <- yield %>%
+  createDataPartition(p = 0.8, list = FALSE, times = 1)
+
+Xtrain.data2  <- Xpreprocess[split2, ] #chem train
+xtest.data2 <- Xpreprocess[-split2, ] #chem test
+Ytrain.data2  <- yield[split2, ] #yield train
+ytest.data2 <- yield[-split2, ] #yield test
+
+```
+
+
+```{r}
+ridgeGrid <- data.frame(.lambda = seq(0, .1, length = 15)) 
+set.seed(101) 
+ridgeRegFit2 <- train(Xtrain.data2, Ytrain.data2, method = "ridge", tuneGrid = ridgeGrid, trControl = ctrl)
+ridgeRegFit2
+```
+
+```{r}
+plot(ridgeRegFit2)
+```
+
+Optimal value: 
+
+The lowest point in the curve indicates the optimal lambda: the log value of lambda that best minimised the error in cross-validation. We can extract this values as:
+
+```{r}
+ridgeRegFit2$bestTune
+```
+
+
+
+(d) Predict the response for the test set. What is the value of the performance metric and how does this compare with the resampled performance metric on the training set? 
+
+```{r}
+
+
+predictions3 <- ridgeRegFit2 %>% predict(xtest.data2)
+
+cbind(
+  RMSE = RMSE(predictions3, ytest.data2),
+  R_squared = caret::R2(predictions3, ytest.data2)
+)
+
+```
+
+Better than the resampled metrics.
+
+(e) Which predictors are most important in the model you have trained? Do either the biological or process predictors dominate the list? 
+
+```{r, fig.height= 10, fig.width= 9}
+varImp(ridgeRegFit2)
+plot(varImp(ridgeRegFit2))
+```
+
+Based on the plot and values displayed, seems as though the processing predictors dominate the list.
+
+(f) Explore the relationships between each of the top predictors and the response. How could this information be helpful in improving yield in future runs of the manufacturing process?
+
+For this question, I'll only look at the top predictor recorded for the manufacturing processes and the biological materials.
+```{r}
+cor(yield, ChemicalManufacturingProcess$ManufacturingProcess13)
+cor(yield, ChemicalManufacturingProcess$BiologicalMaterial06)
+```
+
+As stated in the intro for this question, Biological materials are used to asses the quality of raw materials before processing. If the results are good then the yield of the product may increase. Looking at the top Biological material, we can see that its positively but moderately correlated to the response variable.
+
+On the other hand, manufacturing processes are possibly the steps taken to create the end product graded by a rate. We can see there is a negative correlation here which make sense. If the process is not great then the product will not come out great.
