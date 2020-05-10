@@ -1,0 +1,495 @@
+---
+title: 'Data 624 - Project 2'
+author: "Group 4"
+date: '2020-05-10'
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+toc_depth: 3
+number_sections: true
+theme: yeti
+highlight: pygments
+---
+## Overview
+This is role playing.  I am your new boss.  I am in charge of production at ABC Beverage and you are a team of data scientists reporting to me.  My leadership has told me that new regulations are requiring us to understand our manufacturing process, the predictive factors and be able to report to them our predictive model of PH.
+Please use the historical data set I am providing.  Build and report the factors in BOTH a technical and non-technical report.  I like to use Word and Excel.  Please provide your non-technical report in a  business friendly readable document and your predictions in an Excel readable format.   The technical report should show clearly the models you tested and how you selected your final approach.
+
+```{r error=FALSE, message=FALSE, warning=FALSE, housekeeping, echo=FALSE}
+#clear the workspace
+rm(list = ls())
+library(readxl) #excel
+library(psych)  #descriptive stats
+library(VIM)    #missing values
+library(Amelia)
+library(ggplot2)
+library(knitr)
+library(DataExplorer) # Data Exploratory
+library(kableExtra)
+library(mice)
+library(corrplot)
+library(RColorBrewer)
+library(caret)
+library(gbm)
+library(randomForest)
+library(glmnet)
+library(Cubist)
+library(ipred)
+```
+
+## Load The Data
+```{r, load-data}
+#create a temp file
+temp_file <- tempfile(fileext = ".xlsx")
+temp_file2 <- tempfile(fileext = ".xlsx")
+#grab a copy of the xl file from github, save to temp create above
+download.file(url = "https://github.com/plb2018/DATA624/raw/master/project2/StudentData.xlsx", 
+              destfile = temp_file, 
+              mode = "wb", 
+              quiet = TRUE)
+#load xl from temp
+student_train <- readxl::read_excel(temp_file,skip=0) #read in as tibble
+student_train <- data.frame(student_train) # convert to dataframe
+#load test data
+download.file(url = "https://github.com/javernw/DATA624-Predictive-Analytics/blob/master/StudentEvaluation.xlsx?raw=true", 
+              destfile = temp_file2, 
+              mode = "wb", 
+              quiet = TRUE)
+student_test <- readxl::read_excel(temp_file2,skip=0)
+student_test <- data.frame(student_test)
+```
+Going forward we will explore the data using the training set.
+
+##### Structure and Summary of Training Set
+```{r}
+str(student_train)
+summary(student_train)
+```
+## Explore The Data
+### Skewness in data
+```{r message=FALSE, warning=FALSE, fig.width=9, fig.height=6}
+plot_histogram(student_train)
+```
+
+We see various differences among the variables:  Many appear to be bi-modal or tri-modal, while some appear to be near-normal.  Some are skewed whereas others are not.  There are also several which appear to be categorical (ex: preassure.setpoint) 
+
+
+### Boxplot/Outliers
+```{r, fig.width=9, fig.height=8}
+ggplot(data = reshape2::melt(student_train) , aes(x=variable, y=value)) + 
+  geom_boxplot(outlier.colour="blue", outlier.shape=3, outlier.size=5,aes(fill=variable)) +
+  coord_flip() + theme(legend.position = "none")
+```
+
+We can see a dramatic difference in the level/values of the variables.  Carb flow and filler speed are "off the charts" as compared to some of the other values.  This may necessitate some scaling/ normalization.
+
+
+### Correlation
+```{r, fig.width=9, fig.height=6}
+corrplot(cor(student_train[,-1], use = "na.or.complete"), type="lower", order="alphabet",
+         col=brewer.pal(n=10, name="PiYG"))
+```
+
+Generally speaking, correlations are low, however there are a few areas of concentration.  For example, there might be some multi-colinearity between Alch.Rel, Balling, Balling.Lvl and some of the Carb related variables.
+
+
+### Check For Missing Values
+```{r}
+missmap(student_train, col = c("#CCCC00", "#660033"))
+df.missing <- sort(colSums(is.na(student_train[!complete.cases(student_train),]))/nrow(student_train),decreasing = T)
+kable(df.missing)
+# to create safe names
+colnames(student_train) <- make.names(names(student_train))
+## checking missing values by colunms
+colSums(is.na(student_train))
+```
+
+About 1% of the values are missing.  The absent values are unevenly distributed across variables whith some missing numerous values and others missing none.
+
+
+## Data Preprocessing
+##### Impute, nearzero, high correlation, scale, center
+```{r}
+temp_df <- data.matrix(student_train[,-1]) #convert to mumeric matix. Exlude character column (brand code)
+preprocessing <- preProcess(temp_df, method = c("center", "scale", "knnImpute", "corr", "nzv")) 
+#cleaned training set
+student_train_preprocess <-  predict(preprocessing, temp_df) 
+missmap(as.data.frame(student_train_preprocess), col = c("#CCCC00", "#660033"))
+```
+
+To address some of the observations above, we scale and center the data.  KNN imputation is used to fill in missing values and highly correlated predictors are filtered out.
+
+
+
+### Data Splitting 80/20
+```{r}
+ph <- data.matrix(student_train_preprocess[,24]) #ph --target
+set.seed(789)
+split <- ph %>%
+  createDataPartition(p = 0.8, list = FALSE, times = 1)
+Xtrain.data  <- student_train_preprocess[split, ] #student train
+Xtrain.data <- Xtrain.data[,-24] # exlude target column
+xtest.data <- student_train_preprocess[-split, ] #student validation set
+xtest.data <- xtest.data[,-24] #exclude target column
+Ytrain.data  <- ph[split, ] # ph 
+ytest.data <- ph[-split] # ph
+```
+
+The data is split using 80% for training and holding the remaining 20% for validation.  Also note that a random seed is set for reproducibility. 
+
+
+## Modeling
+
+Here, numerous models of various families are considered.
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+```
+### Linear Models
+#### Model 1 
+##### Ordinary Linear Regression
+```{r}
+lmmod <- train(Xtrain.data, Ytrain.data, method = "lm", trControl = ctrl) 
+lmmod
+lmmodPred <- predict(lmmod,newdata = xtest.data)
+```
+#### Model 2 
+##### Partial Least Squares
+```{r}
+plsmod <- train(
+  Xtrain.data, Ytrain.data, method = "pls",
+  trControl = ctrl,
+  center = T,
+  tuneLength = 20,
+  metrics = "Rsquared"
+  )
+plot(plsmod)
+varImp(plsmod)
+plsmodPred <- predict(plsmod,newdata = xtest.data)
+```
+#### Model 3 
+##### RIDGE
+```{r}
+ridgeGrid <- data.frame(.lambda = seq(0, .1, length = 15)) 
+set.seed(100) 
+ridgeRegFit <- train(Xtrain.data, Ytrain.data, method = "ridge", tuneGrid = ridgeGrid, trControl = ctrl)
+ridgeRegFit
+plot(ridgeRegFit)
+varImp(ridgeRegFit)
+ridgePred <- predict(ridgeRegFit,newdata = xtest.data)
+```
+### Non-Linear Models
+#### Model 4  
+##### Neural Networks
+```{r message=FALSE, warning=FALSE}
+nneG <- expand.grid( .decay = c(0, 0.01, .1), .size = c(1:10), .bag= F )
+set.seed(250)
+nneModel <- train(Xtrain.data, Ytrain.data,
+                  method = "avNNet",
+                  preProc = c("center", "scale"),
+                  tuneGrid = nneG,
+                  trControl = trainControl(method = "cv",number = 10),
+                  linout = T,
+                  trace= F,
+                  MaxNWts = 5 * (ncol(student_train) + 1) + 5 + 1,
+                  maxit = 500)
+nneModel
+nnePred <- predict(nneModel,newdata = xtest.data)
+varImp(nneModel)
+```
+#### Model 5 
+##### Multivariate Adaptive Regression Splines
+```{r message=FALSE, warning=FALSE}
+marsG <- expand.grid(.degree = 1:2 ,.nprune = 2:38)
+set.seed(100)
+marsModel <- train(Xtrain.data,Ytrain.data,
+                   method= 'earth',
+                   tuneGrid = marsG,
+                   trControl = trainControl(method = "cv"))
+marsModel
+marsPred <- predict(marsModel,newdata = xtest.data)
+varImp(marsModel)
+```
+#### Model 6
+##### Support Vector Machines
+```{r}
+svmModel <- train(Xtrain.data, Ytrain.data,
+                  method = "svmRadial",
+                  preProc = c("center", "scale"),
+                  tuneLength = 14,
+                  trControl = trainControl(method = "cv"))
+svmModel
+svmPred <- predict(svmModel,newdata = xtest.data)
+varImp(svmModel)
+```
+#### Model 7
+##### K-Nearest Neighbors
+```{r}
+knnModel <- train(Xtrain.data,Ytrain.data,
+                  method = "knn",
+                  preProc = c("center", "scale"),
+                  tuneLength = 10)
+knnModel
+knnPred <- predict(knnModel,newdata = xtest.data)
+varImp(knnModel)
+```
+### Trees
+#### Model 8
+##### Random Forest
+```{r}
+randomForestModel <- randomForest(Xtrain.data,Ytrain.data,
+                       importance = T,
+                       ntree=1000)
+                       
+rfImp2 <- varImp(randomForestModel,scale = F)
+rfImp2
+randomForestModelPred <- predict(randomForestModel,newdata = xtest.data)
+```
+#### Model 9
+##### Bagged Trees
+```{r}
+baggedTree <- bagging(Ytrain.data ~ ., data = as.data.frame(Xtrain.data))
+baggedTreePred <- predict(baggedTree,newdata = xtest.data)
+summary(baggedTreePred)
+```
+#### Model 10
+##### Boosted Trees
+```{r}
+gbmG <- expand.grid(.interaction.depth = seq(1, 7, by = 2),
+                        .n.trees = seq(100, 1000, by = 100),
+                        .shrinkage = c(0.01, 0.1),
+                        .n.minobsinnode = 8)
+set.seed(100)
+gbmModel <- train(Xtrain.data,Ytrain.data,
+                  method = "gbm",
+                  tuneGrid =gbmG,
+                  verbose=F
+                 )
+varImp(gbmModel)
+gbmPred <- predict(gbmModel,newdata = xtest.data)
+```
+#### Model 11
+##### Cubist
+```{r}
+cubistmodel <- train(Xtrain.data,Ytrain.data,method ="cubist")
+varImp(cubistmodel)
+cubistPred <- predict(cubistmodel,newdata = xtest.data)
+```
+#### Model 12
+##### Single Trees
+```{r}
+student_rpart <- train(Xtrain.data, Ytrain.data, 
+                          method = "rpart2", 
+                          tuneLength = 10, 
+                          trControl = trainControl(method = "cv"))
+student_rpart
+plot(student_rpart)
+varImp(student_rpart)
+rpartPred <- predict(student_rpart,newdata = xtest.data)
+```
+#### Model 13
+##### Model Trees
+```{r message=FALSE, warning=FALSE}
+library(RWeka)
+student_modelt <- M5P(Ytrain.data ~ ., data = as.data.frame(Xtrain.data))
+summary(student_modelt)
+m5Pred <- predict(student_modelt,newdata = as.data.frame(xtest.data))
+```
+### Other Models
+#### Model 14  GLMNET
+```{r}
+glmnetModel <- train(
+  Xtrain.data, Ytrain.data, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  center = T,
+  tuneLength = 20,
+  metrics = "Rsquared"
+  )
+plot(glmnetModel)
+varImp(glmnetModel)
+glmnetPred <- predict(glmnetModel,newdata = xtest.data)
+```
+#### Model 15 
+##### Principal Components Regression
+```{r}
+pcrModel <- train(
+  Xtrain.data, Ytrain.data, method = "pcr",
+  trControl = trainControl("cv", number = 10),
+  center = T,
+  tuneLength = 20,
+  metrics = "Rsquared"
+  )
+plot(pcrModel)
+pcrPred <- predict(pcrModel,newdata = xtest.data)
+```
+
+### Overall Variable Importance
+
+```{r}
+
+importance.df <- data.frame(varImp(lmmod)[1])
+
+importance.df <- cbind(importance.df,
+                       varImp(plsmod)[1],
+                       varImp(ridgeRegFit)[1],
+                       varImp(nneModel)[1],
+                       varImp(marsModel)[1],
+                       varImp(svmModel)[1],
+                       varImp(knnModel)[1],
+                       varImp(randomForestModel,scale = F)[1],
+                       varImp(baggedTree)[1],
+                       varImp(gbmModel)[1],
+                       varImp(cubistmodel)[1],
+                       varImp(student_rpart)[1],
+                       varImp(glmnetModel)[1])
+
+
+
+colnames(importance.df) <- c(	"lmmod",
+                       "plsmod",
+                       "ridgeRegFit",
+                       "nneModel",
+                       "marsModel",
+                       "svmModel",
+                       "knnModel",
+                       "randomForestModel,scale = F",
+                       "baggedTree",
+                       "gbmModel",
+                       "cubistmodel",
+                       "student_rpart",
+                       "glmnetModel")
+
+
+importance.df <- data.frame(apply(importance.df, 2, function(x) x/max(x)))
+
+
+```
+
+```{r}
+library(tidyr)
+library(reshape2)
+
+imp.tidy <- importance.df
+imp.tidy$names <- row.names(importance.df)
+
+imp.tidy <- melt(imp.tidy,c("names"))
+
+ggplot(imp.tidy,aes(x=names,y=value))+
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Overall Mean Variable Importance")+
+  xlab("Variable") +
+  xlab("Relative Importance")
+ 
+
+imp.tree <- importance.df[,unique(imp.tidy$variable)[8:13]]
+imp.tree$names <- row.names(importance.df)
+imp.tree <- melt(imp.tree,c("names"))
+
+ggplot(imp.tree,aes(x=names,y=value))+
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Tree Model Mean Variable Importance")+
+  xlab("Variable") +
+  xlab("Relative Importance")
+```
+
+We look at overall variable importance across all models as well as importance across just the tree-based models.  We find that generally, the variable importance is the same with Mnf.Flow and Usage.cont being the key predictors in both cases.
+
+
+### Evaluation
+```{r}
+## results
+# with all the models
+table <- data.frame(rbind(lm = postResample(pred = lmmodPred , obs = ytest.data),
+                          PLS = postResample(pred = plsmodPred , obs = ytest.data),
+                          Ridge = postResample(pred = ridgePred , obs = ytest.data),
+                          NNE = postResample(pred = nnePred , obs = ytest.data),
+                          MARS =postResample(pred = marsPred , obs = ytest.data),
+                          SVM = postResample(pred = svmPred , obs = ytest.data),
+                          KNN = postResample(pred = knnPred , obs = ytest.data),
+                          Random.Forest = postResample(pred = randomForestModelPred , obs = ytest.data),
+                          BaggedTrees = postResample(pred = baggedTreePred, obs = ytest.data),
+                          GBM = postResample(pred = gbmPred , obs = ytest.data),
+                          Cubist = postResample(pred = cubistPred , obs = ytest.data) ,
+                          Rpart = postResample(pred = rpartPred , obs = ytest.data),
+                          M5 = postResample(pred = m5Pred , obs = ytest.data), 
+                          glmnet = postResample(pred = glmnetPred , obs = ytest.data),
+                          PCR = postResample(pred = pcrPred , obs = ytest.data)))
+
+
+round(table,4) %>% kable() %>% kable_styling(bootstrap_options = c("hover", "striped"))
+ 
+
+table$model.family <- as.factor(c(rep("linear", 3),
+                  rep("non-linear", 4),
+                  rep("Tree", 6),
+                  rep("Other", 2)))
+
+
+rmse.plot <- ggplot(table,aes(x=factor(row.names(table),levels = row.names(table)),
+                 y=RMSE,
+                 fill=model.family))+
+  geom_bar(stat="identity") +
+  coord_cartesian(ylim = c(0.5, 0.8))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("RMSE (Lower is Better)")+
+  xlab("Model")
+
+  
+
+r2.plot <- ggplot(table,aes(x=factor(row.names(table),levels = row.names(table)),
+                 y=Rsquared	,
+                 fill=model.family))+
+  geom_bar(stat="identity") +
+    coord_cartesian(ylim = c(0.3, 0.75))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("R-Squared (Higher is Better)")+
+  xlab("Model")
+  
+ 
+
+mae.plot <- ggplot(table,aes(x=factor(row.names(table),levels = row.names(table)),
+                 y=MAE	,
+                 fill=model.family))+
+  geom_bar(stat="identity") +
+    coord_cartesian(ylim = c(0.35, 0.65))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("MAE (Lower is Better)")+
+  xlab("Model")
+ 
+rmse.plot
+r2.plot
+mae.plot
+```
+
+In evaluating the models, we can see that the tree family performs best and that of the tree-based models the Cubist model is preferred.
+
+
+## Predict PH Using Evaluation Set
+```{r}
+# center and scale excluding brand and PH
+student_eval <- scale(student_test[c(-1,-26)], center = TRUE, scale = TRUE)
+# Use Cubist model
+evalPH.pred <- predict(cubistmodel,newdata = student_eval)
+head(evalPH.pred)
+tail(evalPH.pred)
+# backtransform to use original scale
+scaled.PH <- scale(student_train$PH, center= TRUE, scale=TRUE)
+# scale
+attr(scaled.PH, 'scaled:scale')
+# center
+attr(scaled.PH, 'scaled:center')
+evalPH.pred_orig_units <- evalPH.pred *
+  attr(scaled.PH, 'scaled:scale') +
+  attr(scaled.PH, 'scaled:center')
+head(evalPH.pred_orig_units)
+tail(evalPH.pred_orig_units)
+write.csv(evalPH.pred_orig_units, "StudentEvaluation_Predictions.csv")
+```
+
+In the final step we apply the same transformations as were used for the training data and output predictions to an excel readable format using the testing data.
+
+
